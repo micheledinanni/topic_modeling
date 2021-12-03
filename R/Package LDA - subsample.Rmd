@@ -1,0 +1,148 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+#install.packages('lda')
+```
+```{r}
+library(tm)
+library(SnowballC)
+library(stringr)
+library(lda)
+```
+
+Lettura del file 
+
+```{r}
+med_data <- read.csv(file = 'C:/Users/micky/OneDrive/Desktop/Tesi DS/data/med_transcription.csv')
+```
+
+```{r}
+#rimozione valori nulli
+med_data <- med_data[med_data[, "transcription"] != "",]
+```
+
+Sottocampiono senza rimpiazzamento
+```{r}
+set.seed(0)
+med_data <- sample_frac(tbl = med_data, size = 0.1, replace = FALSE)
+```
+
+Seleziono la colonna transcription utile per fare analisi testuale
+```{r}
+dataset <- med_data$transcription
+```
+
+Creazione del corpus con tutte le descrizioni
+```{r}
+text_corpus <- VCorpus(VectorSource(dataset))
+```
+
+Fase di Preprocessing e salvataggio della matrice termini documenti
+```{r}
+# rimozione url
+removeUrl <- content_transformer(function(x){
+  gsub("http\\S+", " ", x)
+})
+text_corpus <- tm_map(text_corpus, removeUrl)
+writeLines(as.character(text_corpus[[1]]))
+inspect(text_corpus[[1]])
+
+# rimozione numeri
+remove_numbers <- content_transformer(function(x){
+  gsub("[0-9]+", " ", x)
+})
+text_corpus <- tm_map(text_corpus, remove_numbers)
+text_corpus[[1]]$content
+
+
+# conversione in lettere minuscole
+text_corpus <- tm_map(text_corpus, content_transformer(tolower))
+text_corpus[[1]]$content
+
+# rimozione caratteri speciali (rimuovo qualsiasi cosa che non sia un simbolo alfanumerico o punteggiatura)
+removeSpecialChars <- content_transformer(function(x, pattern) gsub("[^a-zA-Z0-9 ]"," ",x))
+
+text_corpus <- tm_map(text_corpus, removeSpecialChars)
+text_corpus[[1]]$content
+
+# rimozione lettere singole e doppie
+removeLetters <- content_transformer(function(x, pattern) gsub('\\b\\w{1,2}\\s'," ",x))
+text_corpus <- tm_map(text_corpus, removeLetters)
+text_corpus[[1]]$content
+
+# rimozione spazi vuoti extra
+text_corpus <- tm_map(text_corpus, stripWhitespace)
+text_corpus[[1]]$content
+
+
+# rimozione stopwords
+my_stopwords <- stopwords("english")
+text_corpus <- tm_map(text_corpus, removeWords, my_stopwords)
+text_corpus[[1]]$content
+
+
+# rimozione spazi vuoti extra
+text_corpus <- tm_map(text_corpus, stripWhitespace)
+text_corpus[[1]]$content
+
+# tokenizzazione
+tokenizer <- content_transformer(function(x) Boost_tokenizer(x))
+text_corpus <- tm_map(text_corpus, tokenizer)
+text_corpus[[1]]$content
+
+# stemming
+text_corpus <- tm_map(text_corpus, stemDocument, language="english")
+text_corpus[[1]]$content
+
+# rimozione spazi vuoti extra
+text_corpus <- tm_map(text_corpus, stripWhitespace)
+text_corpus[[1]]$content
+```
+
+```{r}
+doc_index <- seq(1, length(text_corpus), by=1)
+# initialize array
+new_corpus <- c()
+# from corpus to array
+for (i in doc_index)
+{
+  new_corpus <- c(new_corpus, text_corpus[[i]]$content)
+}
+```
+
+Crea il corpus nel formato adatto al package lda
+```{r}
+corpus <- lexicalize(new_corpus, lower=TRUE) # corpus
+to.keep <- corpus$vocab[word.counts(corpus$documents, corpus$vocab) > 0] #vocabulary
+# create corpus
+documents <- lexicalize(new_corpus, lower=TRUE, vocab=to.keep) #documents
+```
+
+
+```{r}
+result <- lda.collapsed.gibbs.sampler(documents = documents,
+                                      K = 7,
+                                      vocab = to.keep,
+                                      alpha = 0.1,
+                                      eta = 0.1,
+                                      burnin = 10,
+                                      num.iterations = 100)
+```
+
+
+```{r tempo di esecuzione}
+system.time(lda.collapsed.gibbs.sampler(documents = documents,
+                                        K = 7,
+                                        vocab = to.keep,
+                                        alpha = 0.1,
+                                        eta = 0.1,
+                                        burnin = 10,
+                                        num.iterations = 100))
+```
+
+```{r}
+top.topic.words(result$topics, num.words = 20, by.score = FALSE)
+```

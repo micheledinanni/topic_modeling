@@ -1,0 +1,171 @@
+---
+title: "Benchmark sLDA"
+output: html_document
+---
+```{r}
+library(tm)
+library(SnowballC)
+library(stringr)
+library(lda)
+library(ggplot2)
+library(dplyr)
+library(tidytext)
+```
+
+Lettura del file 
+
+```{r}
+data_1 <- read.csv(file = 'C:/Users/micky/OneDrive/Desktop/Tesi DS/data/drugsComTrain_raw.csv')
+data_2 <- read.csv(file = 'C:/Users/micky/OneDrive/Desktop/Tesi DS/data/drugsComTest_raw.csv')
+```
+
+Merge two data frames
+
+```{r}
+drug_data <- rbind(data_1, data_2)
+rm(data_1, data_2)
+```
+
+```{r}
+set.seed(0)
+drug_data <- sample_frac(drug_data, size = .05, replace = F)
+```
+
+```{r}
+drug_data <- drug_data[3:4]#only condition and review
+```
+
+```{r}
+#no null values
+length(na.omit(drug_data$review))
+```
+
+```{r}
+drug_data <- drug_data %>%
+  group_by(condition) %>%
+  filter(n()>200)
+
+unique(drug_data$condition)
+```
+
+```{r}
+#label encoding variabile categoriche
+y <- drug_data$condition
+factors <- factor(y)
+y_le <- as.numeric(factors)
+```
+
+Creazione del corpus con tutte le descrizioni
+```{r}
+text_corpus <- VCorpus(VectorSource(drug_data$review))
+```
+
+Fase di Preprocessing
+```{r}
+#remove url
+removeUrl <- content_transformer(function(x){
+  gsub("http\\S+", " ", x)
+})
+text_corpus <- tm_map(text_corpus, removeUrl)
+writeLines(as.character(text_corpus[[1]]))
+inspect(text_corpus[[1]])
+
+#remove numbers
+remove_numbers <- content_transformer(function(x){
+  gsub("[0-9]+", " ", x)
+})
+text_corpus <- tm_map(text_corpus, remove_numbers)
+text_corpus[[1]]$content
+
+#lowercase
+text_corpus <- tm_map(text_corpus, content_transformer(tolower))
+text_corpus[[1]]$content
+
+#remove all special chars (and the puntuaction)
+removeSpecialChars <- content_transformer(function(x, pattern) gsub("[^a-zA-Z0-9 ]"," ",x))
+
+text_corpus <- tm_map(text_corpus, removeSpecialChars)
+text_corpus[[1]]$content
+
+#remove single / double letters
+removeLetters <- content_transformer(function(x, pattern) gsub('\\b\\w{1,2}\\s'," ",x))
+text_corpus <- tm_map(text_corpus, removeLetters)
+text_corpus[[1]]$content
+
+#strip whitespace
+text_corpus <- tm_map(text_corpus, stripWhitespace)
+text_corpus[[1]]$content
+
+#remove stopwords
+my_stopwords <- stopwords("english")
+text_corpus <- tm_map(text_corpus, removeWords, my_stopwords)
+text_corpus[[1]]$content
+
+
+#strip whitespace
+text_corpus <- tm_map(text_corpus, stripWhitespace)
+text_corpus[[1]]$content
+
+
+#stemming
+text_corpus <- tm_map(text_corpus, stemDocument, language="english")
+text_corpus[[1]]$content
+```
+
+```{r}
+doc_index <- seq(1, length(text_corpus), by=1)
+# inizializzo array
+new_corpus <- c()
+# trasformazione da corpus a vettore per il package LDA
+for (i in doc_index)
+{
+  new_corpus <- c(new_corpus, text_corpus[[i]]$content)
+}
+```
+
+
+```{r}
+set.seed(1234)
+
+# train-test split 70% - 30%
+sample <- sample.int(n = length(new_corpus), size = floor(.70*length(new_corpus)), replace = F)
+x_train <- new_corpus[sample]
+x_test  <- new_corpus[-sample]
+y_train <- y_le[sample]
+y_test <- y_le[-sample]
+```
+
+```{r}
+# Crea il train e test set nel formato adatto al package lda
+documents_train <- lexicalize(x_train, lower=TRUE)
+documents_test <- lexicalize(x_test, lower=TRUE)
+```
+
+
+```{r}
+set.seed(1234)
+params <- sample(1, 10, replace = TRUE)  ## valori iniziali coefficienti di regressione
+system.time({slda_model <- slda.em(documents=documents_train$documents,
+               K=10,
+               vocab=documents_train$vocab,
+               num.e.iterations=10,
+               num.m.iterations=10,
+               alpha=0.1, eta=0.1,
+               annotations = y_train,
+               params,
+               variance=var(y_train),
+               logistic=FALSE,
+               method="sLDA")
+})
+```
+
+```{r}
+yhat <- slda.predict(documents_test$documents, slda_model$topics, slda_model$model, alpha = 0.1, eta = 0.01)
+rss <- sum((yhat - y_test) ^ 2)
+tss <- sum((y_test - mean(y_test)) ^ 2)
+rsq <- 1 - rss/tss
+msg <- sprintf("R^2 score per k=10: %f", rsq)
+print(msg)
+```
+
+

@@ -1,0 +1,160 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(tm)
+library(SnowballC)
+library(stringr)
+library(dplyr)
+```
+
+Lettura del file 
+
+```{r}
+med_data <- read.csv(file = 'C:/Users/micky/OneDrive/Desktop/Tesi DS/data/med_transcription.csv')
+```
+
+```{r}
+#rimozione valori nulli
+med_data <- med_data[med_data[, "transcription"] != "",]
+```
+
+Sottocampiono senza rimpiazzamento
+```{r}
+set.seed(0)
+med_data <- sample_frac(tbl = med_data, size = 0.1, replace = FALSE)
+```
+
+Seleziono la colonna description utile per fare analisi testuale
+```{r}
+dataset <- med_data$transcription
+```
+
+Creazione del corpus con tutte le descrizioni
+```{r}
+text_corpus <- VCorpus(VectorSource(dataset))
+```
+
+Fase di Preprocessing e salvataggio della matrice termini documenti
+```{r}
+
+# rimozione url
+removeUrl <- content_transformer(function(x){
+  gsub("http\\S+", " ", x)
+})
+text_corpus <- tm_map(text_corpus, removeUrl)
+writeLines(as.character(text_corpus[[1]]))
+inspect(text_corpus[[1]])
+
+# rimozione numeri
+remove_numbers <- content_transformer(function(x){
+  gsub("[0-9]+", " ", x)
+})
+text_corpus <- tm_map(text_corpus, remove_numbers)
+text_corpus[[1]]$content
+
+
+# conversione in lettere minuscole
+text_corpus <- tm_map(text_corpus, content_transformer(tolower))
+text_corpus[[1]]$content
+
+# rimozione caratteri speciali (rimuovo qualsiasi cosa che non sia un simbolo alfanumerico o punteggiatura)
+removeSpecialChars <- content_transformer(function(x, pattern) gsub("[^a-zA-Z0-9 ]"," ",x))
+
+text_corpus <- tm_map(text_corpus, removeSpecialChars)
+text_corpus[[1]]$content
+
+# rimozione lettere singole e doppie
+removeLetters <- content_transformer(function(x, pattern) gsub('\\b\\w{1,2}\\s'," ",x))
+text_corpus <- tm_map(text_corpus, removeLetters)
+text_corpus[[1]]$content
+
+# rimozione spazi vuoti extra
+text_corpus <- tm_map(text_corpus, stripWhitespace)
+text_corpus[[1]]$content
+
+
+# rimozione stopwords
+my_stopwords <- stopwords("english")
+text_corpus <- tm_map(text_corpus, removeWords, my_stopwords)
+text_corpus[[1]]$content
+
+
+# rimozione spazi vuoti extra
+text_corpus <- tm_map(text_corpus, stripWhitespace)
+text_corpus[[1]]$content
+
+# tokenizzazione
+tokenizer <- content_transformer(function(x) Boost_tokenizer(x))
+text_corpus <- tm_map(text_corpus, tokenizer)
+text_corpus[[1]]$content
+
+# stemming
+text_corpus <- tm_map(text_corpus, stemDocument, language="english")
+text_corpus[[1]]$content
+
+# rimozione spazi vuoti extra
+text_corpus <- tm_map(text_corpus, stripWhitespace)
+text_corpus[[1]]$content
+
+
+# creazione matrice documenti-termini
+dtm <- DocumentTermMatrix(text_corpus, )
+inspect(dtm)
+```
+
+
+```{r}
+# uso il package topicmodels 
+library(topicmodels)
+library(tidytext)
+library(ggplot2)
+library(tidyr)
+```
+
+
+```{r}
+# imposto un valore di k (numero dei topics) 
+# e il seme per la riproducibilit?
+# LDA prende in input una matrice con pesatura tf e non tf-idf
+ap_lda <- LDA(dtm, k = 7, control = list(seed = 999, em=list(iter.max=10)))
+ap_lda
+```
+
+```{r tempo di esecuzione}
+system.time(LDA(dtm, k = 7, control = list(seed = 999, em=list(iter.max=10))))
+```
+
+```{r}
+# Calcolo delle probabilit? TOPIC/PAROLA (le beta) 
+# per ciascun topic ottengo la probablit? di 
+# appartenenza di quel termine al topic 
+ap_topics <- tidy(ap_lda, matrix = "beta")
+```
+
+
+```{r}
+# Trovo i 20 termini pi? comuni con ciascun topic
+ap_top_terms <- ap_topics %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 20) %>% 
+  ungroup() %>%
+  arrange(topic, -beta)
+
+ap_top_terms %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered()
+```
+
+Uso il CGS
+```{r}
+system.time(LDA(dtm, k = 7, method = 'Gibbs', control = list(seed = 999, iter=100, burnin=10)))
+```
+
+
+
